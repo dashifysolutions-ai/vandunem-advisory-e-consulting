@@ -83,7 +83,7 @@ export default function Contact({ prefilledService }: ContactProps) {
     trackEvent("WHATSAPP_CLICK");
     const text = `Olá, Vandunem. Sou ${formData.nome} da empresa ${formData.empresa || "Não Informada"}. Gostaria de agendar uma reunião comercial para falar sobre um problema empresarial no setor de ${formData.setor || "Serviços"}.`;
     const encoded = encodeURIComponent(text);
-    window.open(`https://wa.me/244921780191?text=${encoded}`, "_blank");
+    window.open(`https://wa.me/244953203997?text=${encoded}`, "_blank");
   };
 
   return (
@@ -130,8 +130,8 @@ export default function Contact({ prefilledService }: ContactProps) {
                 </div>
                 <div>
                   <h4 className="text-[10px] uppercase tracking-wider font-mono text-gray-500">Canal Principal WhatsApp</h4>
-                  <a href="https://wa.me/244921780191" target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-gray-200 hover:text-blue-400 transition-colors">
-                    921 780 191
+                  <a href="https://wa.me/244953203997" target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-gray-200 hover:text-blue-400 transition-colors">
+                    953 203 997
                   </a>
                 </div>
               </div>
@@ -290,7 +290,7 @@ export default function Contact({ prefilledService }: ContactProps) {
                       value={formData.telefone}
                       onChange={handleChange}
                       required
-                      placeholder="Ex: +244 921 780 191"
+                      placeholder="Ex: +244 953 203 997"
                       className="w-full bg-[#070b19] border border-blue-950 text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none rounded px-4 py-3.5 text-sm"
                     />
                   </div>

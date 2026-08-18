@@ -138,7 +138,7 @@ ${result.areasRecomendadas?.join(", ")}
     `;
 
     const encoded = encodeURIComponent(leadInfoText.trim());
-    window.open(`https://wa.me/244921780191?text=${encoded}`, "_blank");
+    window.open(`https://wa.me/244953203997?text=${encoded}`, "_blank");
   };
 
   const handleReset = () => {
@@ -376,7 +376,7 @@ ${result.areasRecomendadas?.join(", ")}
               type="tel"
               value={answers.q10}
               onChange={(e) => handleChange("q10", e.target.value)}
-              placeholder="Exemplo: +244 921 780 191"
+              placeholder="Exemplo: +244 953 203 997"
               className="w-full bg-[#090e25] border border-blue-950 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none rounded-md px-4 py-3.5 text-base"
               onKeyDown={(e) => e.key === "Enter" && !isNextDisabled() && handleNext()}
             />

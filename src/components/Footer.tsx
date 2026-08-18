@@ -70,8 +70,8 @@ export default function Footer({ onNavigate }: FooterProps) {
 
               <div className="flex items-center gap-3 text-xs text-gray-400">
                 <MessageSquare size={12} className="text-blue-500 shrink-0" />
-                <a href="https://wa.me/244921780191" className="hover:text-blue-400 transition-colors">
-                  WhatsApp: 921 780 191
+                <a href="https://wa.me/244953203997" className="hover:text-blue-400 transition-colors">
+                  WhatsApp: 953 203 997
                 </a>
               </div>
 

@@ -116,7 +116,7 @@ export default function Areas({ onNavigate, onSelectAreaForAI }: AreasProps) {
   const handleCTA = (areaName: string, msg: string) => {
     trackEvent("CTA_CLICK");
     const encoded = encodeURIComponent(msg);
-    window.open(`https://wa.me/244921780191?text=${encoded}`, "_blank");
+    window.open(`https://wa.me/244953203997?text=${encoded}`, "_blank");
   };
 
   const handleAIClick = (areaName: string) => {

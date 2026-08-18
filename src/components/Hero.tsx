@@ -29,7 +29,7 @@ export default function Hero({ onNavigate, onSelectProblem }: HeroProps) {
 
   const handleWhatsApp = () => {
     trackEvent("WHATSAPP_CLICK");
-    window.open("https://wa.me/244921780191?text=Olá,%20Vandunem.%20Gostaria%20de%20falar%20sobre%20um%20problema%20empresarial.", "_blank");
+    window.open("https://wa.me/244953203997?text=Olá,%20Vandunem.%20Gostaria%20de%20falar%20sobre%20um%20problema%20empresarial.", "_blank");
   };
 
   const handleProblemClick = (prob: string) => {
