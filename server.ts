@@ -509,7 +509,7 @@ app.post("/api/ai/qualify", async (req, res) => {
     `;
 
     const ai = getGeminiClient();
-    const modelsToTry = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-flash-latest"];
     let parsedResult: any = null;
     let lastError: any = null;
 
