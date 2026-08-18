@@ -140,24 +140,120 @@ async function initFirestoreDatabase() {
   }
 }
 
-// Lazy initialization of GoogleGenAI
-let aiInstance: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI {
-  if (!aiInstance) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key || key === "MY_GEMINI_API_KEY") {
-      console.warn("⚠️ GEMINI_API_KEY não está configurada ou usa o valor padrão.");
+// Helper to validate email format rigorously
+function isValidEmail(email: string | null | undefined): boolean {
+  if (!email || typeof email !== "string") return false;
+  const trimmed = email.trim();
+  if (trimmed.length < 5 || trimmed.length > 254) return false;
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!emailRegex.test(trimmed)) return false;
+  const parts = trimmed.split("@");
+  if (parts.length !== 2) return false;
+  const domainParts = parts[1].split(".");
+  if (domainParts.length < 2) return false;
+  return domainParts[domainParts.length - 1].length >= 2;
+}
+
+// Helper to retrieve the active Gemini API Key securely (prioritizing CUSTOM_GEMINI_API_KEY)
+function getGeminiApiKey(): string {
+  const possibleKeys = [
+    process.env.CUSTOM_GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY2,
+    process.env.GOOGLE_API_KEY,
+    process.env.GEMINI_KEY,
+    process.env.API_KEY
+  ];
+
+  for (const k of possibleKeys) {
+    if (k && k !== "MY_GEMINI_API_KEY" && k.trim().length > 5) {
+      return k.trim();
     }
-    aiInstance = new GoogleGenAI({
-      apiKey: key || "",
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
-    });
   }
-  return aiInstance;
+  return "";
+}
+
+// Helper to categorize AI errors securely without leaking keys or internal credentials
+function categorizeGeminiError(error: any): { statusCode: number; errorCode: string; userMessage: string } {
+  const errMsg = (error?.message || error?.toString() || "").toLowerCase();
+  const status = error?.status || error?.statusCode;
+
+  if (
+    status === 401 ||
+    status === 403 ||
+    errMsg.includes("api key") ||
+    errMsg.includes("unauthenticated") ||
+    errMsg.includes("permission_denied") ||
+    errMsg.includes("invalid api key") ||
+    errMsg.includes("api_key_invalid")
+  ) {
+    return {
+      statusCode: 401,
+      errorCode: "AUTH_ERROR",
+      userMessage: "Falha de autenticação na API Gemini. A chave CUSTOM_GEMINI_API_KEY fornecida é inválida, não possui permissões ou expirou."
+    };
+  }
+
+  if (
+    status === 429 ||
+    errMsg.includes("quota") ||
+    errMsg.includes("resource_exhausted") ||
+    errMsg.includes("rate limit") ||
+    errMsg.includes("too many requests")
+  ) {
+    return {
+      statusCode: 429,
+      errorCode: "RATE_LIMIT",
+      userMessage: "O limite de requisições da API Gemini foi atingido temporariamente. Por favor, aguarde alguns instantes e tente novamente."
+    };
+  }
+
+  if (
+    errMsg.includes("timeout") ||
+    errMsg.includes("econnreset") ||
+    errMsg.includes("etimedout") ||
+    errMsg.includes("network") ||
+    errMsg.includes("fetch failed")
+  ) {
+    return {
+      statusCode: 504,
+      errorCode: "NETWORK_TIMEOUT",
+      userMessage: "Tempo limite esgotado ao comunicar com o serviço de inteligência artificial. Por favor, verifique a conexão e tente novamente."
+    };
+  }
+
+  if (
+    errMsg.includes("json") ||
+    errMsg.includes("parse") ||
+    errMsg.includes("schema") ||
+    errMsg.includes("invalid response")
+  ) {
+    return {
+      statusCode: 502,
+      errorCode: "INVALID_RESPONSE",
+      userMessage: "A inteligência artificial retornou uma resposta com formato inesperado. Por favor, tente novamente."
+    };
+  }
+
+  return {
+    statusCode: 500,
+    errorCode: "INTERNAL_AI_ERROR",
+    userMessage: "Não foi possível concluir a análise do diagnóstico de IA no momento. Por favor, tente novamente."
+  };
+}
+
+// Lazy initialization of GoogleGenAI with active API key
+function getGeminiClient(): GoogleGenAI {
+  const key = getGeminiApiKey();
+  return new GoogleGenAI({
+    apiKey: key,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
 }
 
 // REST APIs
@@ -258,103 +354,231 @@ app.patch("/api/leads/:id", async (req, res) => {
   }
 });
 
+// Consultative Business Diagnostic Engine (Expert AI fallback & generator)
+function generateFallbackDiagnosis(answers: {
+  q1: string;
+  q2?: string;
+  q3?: string;
+  q4?: string;
+  q5?: string;
+  q6?: string;
+  q7?: string;
+  q8?: string;
+  q9?: string;
+  q10?: string;
+  q11?: string;
+}) {
+  const challenge = (answers.q1 || "").toLowerCase();
+  const sector = answers.q2 || "Serviços Gerais";
+  const size = answers.q3 || "PME";
+  const impact = answers.q5 || "impacto operacional e financeiro";
+  const company = answers.q9 || "a sua empresa";
+
+  let areas: string[] = [];
+  let problems: string[] = [];
+
+  if (challenge.includes("finan") || challenge.includes("custo") || challenge.includes("lucro") || challenge.includes("caixa") || challenge.includes("dinheiro")) {
+    areas = ["02 — FINANCE & PERFORMANCE", "01 — BUSINESS & STRATEGY"];
+    problems = [
+      "Inexistência de relatórios financeiros gerenciais em tempo real (DRE, Fluxo de Caixa Projetado e Margens por Produto).",
+      "Vulnerabilidade à flutuação cambial e custos de reposição de stock no mercado angolano.",
+      "Mistura de despesas operacionais com despesas correntes, dificultando o cálculo da margem de lucro real."
+    ];
+  } else if (challenge.includes("venda") || challenge.includes("client") || challenge.includes("estratég") || challenge.includes("mercado")) {
+    areas = ["01 — BUSINESS & STRATEGY", "04 — PRODUCT & OPERATIONS"];
+    problems = [
+      "Ausência de um funil comercial estruturado com métricas claras de conversão e retenção de clientes em Luanda.",
+      "Dependência de canais informais de prospecção com baixa previsibilidade de receita futura.",
+      "Posicionamento de valor e precificação desalinhados com a capacidade de pagamento do segmento-alvo."
+    ];
+  } else if (challenge.includes("dado") || challenge.includes("ia") || challenge.includes("auto") || challenge.includes("sist") || challenge.includes("tecnolog")) {
+    areas = ["03 — AI & DATA", "04 — PRODUCT & OPERATIONS"];
+    problems = [
+      "Processos operacionais manuais que consomem tempo excessivo da equipa e aumentam a taxa de erro humano.",
+      "Silos de dados desintegrados impedindo tomadas de decisão rápidas baseadas em evidências reais.",
+      "Falta de automação inteligente nos canais de atendimento e acompanhamento pós-venda."
+    ];
+  } else if (challenge.includes("oper") || challenge.includes("process") || challenge.includes("produt") || challenge.includes("equip")) {
+    areas = ["04 — PRODUCT & OPERATIONS", "05 — PROCUREMENT, RISK, GOVERNANCE & COMPLIANCE"];
+    problems = [
+      "Falta de padronização nos fluxos operacionais internos (SOPs), gerando retrabalho constante.",
+      "Gargalos de comunicação e desalinhamento de responsabilidades entre colaboradores e gestão.",
+      "Baixa produtividade por colaborador devido à ausência de indicadores-chave de desempenho (KPIs)."
+    ];
+  } else if (challenge.includes("compra") || challenge.includes("forneced") || challenge.includes("risco") || challenge.includes("complia")) {
+    areas = ["05 — PROCUREMENT, RISK, GOVERNANCE & COMPLIANCE", "02 — FINANCE & PERFORMANCE"];
+    problems = [
+      "Falta de auditoria preventiva e dependência excessiva de poucos fornecedores críticos.",
+      "Ausência de políticas formais de conformidade fiscal e regulatória no ecossistema de Angola.",
+      "Custos de aquisição inflacionados por falta de negociação estratégica de contratos de fornecimento."
+    ];
+  } else {
+    areas = ["01 — BUSINESS & STRATEGY", "02 — FINANCE & PERFORMANCE", "04 — PRODUCT & OPERATIONS"];
+    problems = [
+      "Falta de alinhamento estratégico entre a visão dos sócios e a execução operacional do dia-a-dia.",
+      "Controles internos e indicadores de produtividade insuficientes para o atual estágio da organização.",
+      "Necessidade de reestruturação de processos para destravar margens e garantir sustentabilidade a longo prazo."
+    ];
+  }
+
+  const resumoDesafio = `A análise preliminar para ${company} (${sector}, segmento ${size} com cerca de ${answers.q4 || "alguns"} colaboradores) aponta que o desafio em "${answers.q1}" reflete uma oportunidade crítica de estruturação e governança empresarial. O impacto relatado — "${impact}" — evidencia que a organização opera com perdas de eficiência que podem ser mitigadas com a implementação de controles de gestão, clareza financeira e processos ágeis adequados à realidade do mercado de Angola.`;
+
+  const proximoPasso = `Recomendamos o agendamento urgente de uma sessão de Diagnóstico Start com um consultor corporativo sénior da Vandunem para mapeamento in loco dos processos, validação dos números e desenho do plano de acção de 90 dias.`;
+
+  return {
+    resumoDesafio,
+    problemasIdentificados: problems,
+    areasRecomendadas: areas,
+    proximoPasso
+  };
+}
+
 // 2. AI Triaging / Qualification
 app.post("/api/ai/qualify", async (req, res) => {
   try {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key || key === "MY_GEMINI_API_KEY") {
+    const { q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11 } = req.body;
+
+    // 1. Validation of required inputs
+    if (!q1 || !q8 || !q10) {
       return res.status(400).json({
-        error: "A chave de API da IA (GEMINI_API_KEY) não está configurada. Por favor, configure esta chave no painel de Definições/Segredos do AI Studio para ativar o diagnóstico inteligente de IA da Vandunem."
+        success: false,
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        error: "Por favor, preencha todos os campos obrigatórios da triagem (Desafio, Nome e Contacto)."
       });
     }
 
-    const { q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11 } = req.body;
-
-    if (!q1 || !q8 || !q10) {
-      return res.status(400).json({ error: "Respostas do questionário incompletas." });
+    // 2. Strict Email validation
+    if (!q11 || !isValidEmail(q11)) {
+      return res.status(400).json({
+        success: false,
+        errorCode: "INVALID_EMAIL",
+        error: "O endereço de e-mail fornecido é inválido. Por favor, introduza um formato de e-mail válido (ex: nome@empresa.com)."
+      });
     }
 
-    // Build the diagnostic data context
+    // 3. API Key check
+    const key = getGeminiApiKey();
+    if (!key || key.length < 5) {
+      return res.status(400).json({
+        success: false,
+        errorCode: "API_KEY_MISSING",
+        error: "A chave de API CUSTOM_GEMINI_API_KEY não foi detetada no servidor. Por favor, configure a variável de ambiente CUSTOM_GEMINI_API_KEY no painel de Segredos/Definições para ativar o diagnóstico de IA."
+      });
+    }
+
+    // 4. Prepare context and prompt
     const contextText = `
-    Respostas do questionário de triagem empresarial da Vandunem:
-    1. Desafio principal: ${q1}
-    2. Setor da empresa: ${q2}
-    3. Tamanho da empresa: ${q3}
-    4. Número de colaboradores: ${q4}
-    5. Impacto do problema: ${q5}
-    6. Há quanto tempo existe: ${q6}
-    7. Quando gostaria de resolver: ${q7}
-    8. Nome do gestor/responsável: ${q8}
-    9. Nome da empresa: ${q9}
-    10. WhatsApp/Contacto: ${q10}
-    11. E-mail: ${q11}
+    DADOS DECLARADOS DO DIAGNÓSTICO:
+    - 1. Desafio Principal: ${q1}
+    - 2. Setor de Atividade: ${q2 || "Não informado"}
+    - 3. Porte da Empresa: ${q3 || "Não informado"}
+    - 4. Número de Colaboradores: ${q4 || "Não informado"}
+    - 5. Impacto Real do Desafio: ${q5 || "Não informado"}
+    - 6. Tempo de Existência do Problema: ${q6 || "Não informado"}
+    - 7. Urgência de Resolução: ${q7 || "Não informado"}
+    - 8. Nome do Gestor/Executivo: ${q8}
+    - 9. Nome da Empresa: ${q9 || "Não informada"}
+    - 10. WhatsApp/Telefone: ${q10}
+    - 11. E-mail Corporativo: ${q11}
     `;
 
     const systemPrompt = `
-    Você é a inteligência artificial analista da VANDUNEM ADVISORY & CONSULTING, uma consultoria empresarial premium de elite focada no mercado angolano.
-    Sua missão é fornecer uma avaliação preliminar de altíssima qualidade técnica para o potencial cliente baseado nas respostas enviadas.
+    Você é a inteligência artificial consultiva e estratégica da VANDUNEM ADVISORY & CONSULTING, consultoria empresarial de elite focada no ecossistema empresarial de Angola.
     
-    DIRETRIZES DE ESTILO:
-    - Linguagem formal, técnica, executiva e altamente persuasiva.
-    - Foco na realidade de Angola (Luanda, PMEs angolanas, microempresas e prestadores de serviços).
-    - Jamais prometa resultados financeiros específicos (ex: 'vamos duplicar sua margem em 5 dias') ou invente dados.
-    - Explique de forma madura que isso é uma triagem comercial inicial e que um diagnóstico profissional completo de 3 a 7 dias é indispensável.
-    - Associe o problema com as 5 áreas de prática da Vandunem:
-      01 — BUSINESS & STRATEGY
-      02 — FINANCE & PERFORMANCE
-      03 — AI & DATA
-      04 — PRODUCT & OPERATIONS
-      05 — PROCUREMENT, RISK, GOVERNANCE & COMPLIANCE
-
-    Você DEVE retornar a resposta EXCLUSIVAMENTE em formato JSON que siga o seguinte schema:
+    SUA MISSÃO:
+    Produzir uma análise diagnóstica executiva, rigorosa, técnica e orientada a resultados com base nas informações enviadas pelo gestor.
+    
+    DIRETRIZES TÉCNICAS E DE RIGOR:
+    1. Redija uma síntese executiva sofisticada de 2 a 3 parágrafos sobre a dor do cliente, relacionando o impacto relatado com a realidade de gestão, custos, processos ou governança no mercado angolano.
+    2. Identifique de 3 a 4 problemas de raiz estruturais específicos e técnicos.
+    3. Mapeie e associe com precisão quais das 5 áreas da Vandunem são requeridas para sanar a causa:
+       - 01 — BUSINESS & STRATEGY
+       - 02 — FINANCE & PERFORMANCE
+       - 03 — AI & DATA
+       - 04 — PRODUCT & OPERATIONS
+       - 05 — PROCUREMENT, RISK, GOVERNANCE & COMPLIANCE
+    4. Indique uma recomendação clara de próximo passo sugerindo o agendamento de uma sessão de Diagnóstico com os consultores corporativos da Vandunem.
+    
+    FORMATO OBRIGATÓRIO (JSON PURO):
     {
-      "resumoDesafio": "Uma análise sofisticada (2-3 parágrafos) sintetizando a dor relatada sob uma ótica empresarial madura.",
-      "problemasIdentificados": ["Problema de raiz 1 estruturado", "Problema de raiz 2 estruturado", "Problema de raiz 3 estruturado"],
-      "areasRecomendadas": ["01 — BUSINESS & STRATEGY", "02 — FINANCE & PERFORMANCE", "etc..."],
-      "proximoPasso": "Uma recomendação executiva elegante indicando o agendamento urgente de um diagnóstico presencial ou remoto para detalhamento do plano de acção."
+      "resumoDesafio": "Texto detalhado e executivo em Português.",
+      "problemasIdentificados": ["Problema 1", "Problema 2", "Problema 3"],
+      "areasRecomendadas": ["01 — BUSINESS & STRATEGY", "02 — FINANCE & PERFORMANCE"],
+      "proximoPasso": "Recomendação para agendamento presencial ou remoto da sessão de alinhamento diagnóstico."
     }
     `;
 
     const ai = getGeminiClient();
-    
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { text: systemPrompt },
-        { text: contextText }
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            resumoDesafio: {
-              type: Type.STRING,
-              description: "A highly sophisticated executive summary of the business challenge in Portuguese."
-            },
-            problemasIdentificados: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "List of 3-4 specific root problems identified from the answers in Portuguese."
-            },
-            areasRecomendadas: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Recommended Vandunem areas of practice."
-            },
-            proximoPasso: {
-              type: Type.STRING,
-              description: "Practical next steps advising a professional diagnostic meeting in Portuguese."
+    const modelsToTry = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-flash-latest"];
+    let parsedResult: any = null;
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: contextText,
+          config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                resumoDesafio: {
+                  type: Type.STRING,
+                  description: "Executive summary of the business challenge in Portuguese."
+                },
+                problemasIdentificados: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: "List of 3-4 root problems in Portuguese."
+                },
+                areasRecomendadas: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: "Recommended Vandunem practice areas."
+                },
+                proximoPasso: {
+                  type: Type.STRING,
+                  description: "Next steps recommendation in Portuguese."
+                }
+              },
+              required: ["resumoDesafio", "problemasIdentificados", "areasRecomendadas", "proximoPasso"]
             }
-          },
-          required: ["resumoDesafio", "problemasIdentificados", "areasRecomendadas", "proximoPasso"]
+          }
+        });
+
+        if (response.text) {
+          const raw = JSON.parse(response.text);
+          if (
+            raw.resumoDesafio &&
+            Array.isArray(raw.problemasIdentificados) &&
+            raw.problemasIdentificados.length > 0 &&
+            Array.isArray(raw.areasRecomendadas) &&
+            raw.areasRecomendadas.length > 0 &&
+            raw.proximoPasso
+          ) {
+            parsedResult = raw;
+            console.log(`✅ Diagnóstico gerado com sucesso via Gemini (${modelName})`);
+            break;
+          }
         }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Tentativa com modelo ${modelName} falhou:`, err?.message || err);
       }
-    });
+    }
 
-    const parsedResult = JSON.parse(response.text || "{}");
+    if (!parsedResult) {
+      const errorInfo = categorizeGeminiError(lastError || new Error("Falha na geração do modelo"));
+      return res.status(errorInfo.statusCode).json({
+        success: false,
+        errorCode: errorInfo.errorCode,
+        error: errorInfo.userMessage
+      });
+    }
 
-    // Persist this qualified lead into Leads
+    // 5. Persist the qualified lead into Firestore Leads
     const lead_id = `lead_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newLead = {
       lead_id,
@@ -363,33 +587,40 @@ app.post("/api/ai/qualify", async (req, res) => {
       setor: q2 || "Não Informado",
       tamanho_empresa: q3 || "Não Especificado",
       telefone: q10,
-      email: q11 || "Não Informado",
-      problema: `Desafio: ${q1}. Colaboradores: ${q4}. Impacto: ${q5}. Tempo: ${q6}.`,
-      urgencia: q7,
+      email: q11,
+      problema: `Desafio: ${q1}. Colaboradores: ${q4 || "N/D"}. Impacto: ${q5 || "N/D"}. Tempo: ${q6 || "N/D"}.`,
+      urgencia: q7 || "N/D",
       servico_recomendado: parsedResult.areasRecomendadas?.join(", ") || "Business Advisory",
       origem: "Vandunem AI (Qualificado)",
       status: "QUALIFIED",
       created_at: new Date().toISOString()
     };
 
-    const firestore = getFirestoreDb();
-    await firestore.collection("leads").doc(lead_id).set(newLead);
-
-    // Increment ANALYTICS for AI_COMPLETED
     try {
+      const firestore = getFirestoreDb();
+      await firestore.collection("leads").doc(lead_id).set(newLead);
+
       const analyticsRef = firestore.collection("analytics").doc("dashboard");
       await analyticsRef.update({
         "eventos.AI_COMPLETED": FieldValue.increment(1)
-      });
-    } catch (e) {
-      console.error("Erro ao atualizar estatísticas da IA:", e);
+      }).catch(err => console.warn("Analytics update skipped:", err));
+    } catch (dbError) {
+      console.warn("Aviso ao gravar no Firestore:", dbError);
     }
 
-    res.json({ success: true, analysis: parsedResult, leadId: newLead.lead_id });
+    return res.json({
+      success: true,
+      analysis: parsedResult,
+      leadId: newLead.lead_id
+    });
 
   } catch (error) {
-    console.error("Erro na qualificação de IA:", error);
-    res.status(500).json({ error: "Erro ao processar análise da IA. Por favor, tente novamente." });
+    const errorInfo = categorizeGeminiError(error);
+    return res.status(errorInfo.statusCode).json({
+      success: false,
+      errorCode: errorInfo.errorCode,
+      error: errorInfo.userMessage
+    });
   }
 });
 

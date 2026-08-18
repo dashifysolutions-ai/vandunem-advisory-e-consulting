@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { trackEvent } from "../utils/analytics.ts";
+import { isValidEmail } from "../utils/validation.ts";
 import { 
   Mail, Phone, MessageSquare, ShieldAlert, CheckCircle2, 
   Loader2, ArrowRight, User, Building, MapPin, Send 
@@ -32,6 +33,11 @@ export default function Contact({ prefilledService }: ContactProps) {
     e.preventDefault();
     if (!formData.nome || !formData.telefone) {
       setError("Nome e Telefone/WhatsApp são obrigatórios.");
+      return;
+    }
+
+    if (formData.email && !isValidEmail(formData.email)) {
+      setError("Por favor, introduza um endereço de e-mail válido (ex: nome@empresa.com).");
       return;
     }
 

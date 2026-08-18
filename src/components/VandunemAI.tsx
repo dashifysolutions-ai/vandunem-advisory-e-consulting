@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { trackEvent } from "../utils/analytics.ts";
+import { isValidEmail } from "../utils/validation.ts";
 import { AIAnalysis } from "../types.ts";
 import { 
   ArrowRight, ArrowLeft, Send, CheckCircle2, AlertTriangle, 
-  Sparkles, Loader2, MessageSquare, RefreshCw, Database, Lock 
+  Sparkles, Loader2, MessageSquare, RefreshCw, RotateCcw, Lock 
 } from "lucide-react";
 
 interface VandunemAIProps {
@@ -79,6 +80,12 @@ export default function VandunemAI({ preselectedProblem, onClearPreselection, on
   };
 
   const handleSubmit = async () => {
+    // 1. Strict frontend email validation before any network request
+    if (!isValidEmail(answers.q11)) {
+      setError("Por favor, introduza um endereço de e-mail corporativo válido (ex: nome@empresa.com) antes de prosseguir com a análise.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -89,19 +96,20 @@ export default function VandunemAI({ preselectedProblem, onClearPreselection, on
         body: JSON.stringify(answers),
       });
 
-      if (!response.ok) {
-        throw new Error("Não foi possível gerar a qualificação de IA. Por favor, tente novamente.");
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Não foi possível gerar a qualificação de IA. Por favor, tente novamente.");
       }
 
-      const data = await response.json();
-      if (data.success && data.analysis) {
+      if (data.success && data.analysis && data.analysis.resumoDesafio) {
         setResult(data.analysis);
         trackEvent("AI_COMPLETED");
       } else {
-        throw new Error("Resposta inesperada do servidor.");
+        throw new Error("Resposta da inteligência artificial em formato inesperado.");
       }
     } catch (err: any) {
-      setError(err.message || "Erro desconhecido na comunicação com a Vandunem AI.");
+      setError(err.message || "Erro de comunicação ao processar o diagnóstico por IA.");
     } finally {
       setLoading(false);
     }
@@ -154,15 +162,19 @@ ${result.areasRecomendadas?.join(", ")}
 
   // Check if current step has a valid value to unlock next button
   const isNextDisabled = () => {
-    const currentVal = (answers as any)[`q${step}`];
+    if (step === 11) {
+      // Strict email format validation: rejects "EDTHGFGFGFG", "teste", etc.
+      return !isValidEmail(answers.q11);
+    }
     if (step === 10) {
       // Validate phone/whatsapp minimally
-      return !currentVal || currentVal.trim().length < 8;
+      return !answers.q10 || answers.q10.trim().length < 8;
     }
     if (step === 8) {
       // Name
-      return !currentVal || currentVal.trim().length < 2;
+      return !answers.q8 || answers.q8.trim().length < 2;
     }
+    const currentVal = (answers as any)[`q${step}`];
     return !currentVal || currentVal.trim() === "";
   };
 
@@ -372,19 +384,53 @@ ${result.areasRecomendadas?.join(", ")}
         );
 
       case 11:
+        const emailValue = answers.q11.trim();
+        const hasTyped = emailValue.length > 0;
+        const emailValid = isValidEmail(emailValue);
+
         return (
-          <div className="animate-fade-in flex flex-col gap-5 w-full">
-            <h3 className="text-lg sm:text-xl font-serif text-white font-semibold">
-              11. Qual é o seu endereço de E-mail de contacto?
-            </h3>
-            <input
-              type="email"
-              value={answers.q11}
-              onChange={(e) => handleChange("q11", e.target.value)}
-              placeholder="Exemplo: gestao@empresa.ao"
-              className="w-full bg-[#090e25] border border-blue-950 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none rounded-md px-4 py-3.5 text-base"
-              onKeyDown={(e) => e.key === "Enter" && !isNextDisabled() && handleNext()}
-            />
+          <div className="animate-fade-in flex flex-col gap-4 w-full">
+            <div>
+              <h3 className="text-lg sm:text-xl font-serif text-white font-semibold">
+                11. Qual é o seu endereço de E-mail corporativo?
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                O resumo executivo da análise da IA será associado a este e-mail para contacto dos nossos consultores.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <input
+                type="email"
+                value={answers.q11}
+                onChange={(e) => handleChange("q11", e.target.value)}
+                placeholder="Exemplo: nome@empresa.com ou gestao@empresa.ao"
+                className={`w-full bg-[#090e25] border text-white placeholder-gray-500 rounded-md px-4 py-3.5 text-base transition-colors focus:outline-none ${
+                  hasTyped
+                    ? emailValid
+                      ? "border-green-500/70 focus:border-green-400"
+                      : "border-red-500/70 focus:border-red-400"
+                    : "border-blue-950 focus:border-blue-500"
+                }`}
+                onKeyDown={(e) => e.key === "Enter" && !isNextDisabled() && handleNext()}
+                autoComplete="email"
+              />
+
+              {/* Real-time Email Validation Feedback */}
+              {hasTyped && !emailValid && (
+                <div className="flex items-center gap-1.5 text-xs text-red-400 animate-fade-in">
+                  <AlertTriangle size={13} className="shrink-0 text-red-400" />
+                  <span>Por favor, insira um e-mail válido (ex: nome@empresa.com). Formatos como &quot;EDTHGFGFGFG&quot; ou incompletos não são aceites.</span>
+                </div>
+              )}
+
+              {hasTyped && emailValid && (
+                <div className="flex items-center gap-1.5 text-xs text-green-400 animate-fade-in">
+                  <CheckCircle2 size={13} className="shrink-0 text-green-400" />
+                  <span>E-mail válido para envio da triagem executiva.</span>
+                </div>
+              )}
+            </div>
           </div>
         );
 
@@ -417,19 +463,29 @@ ${result.areasRecomendadas?.join(", ")}
           {/* Decorative design lines */}
           <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-blue-900 via-blue-500 to-blue-900"></div>
 
-          {/* Error handling */}
+          {/* Error handling with Retry Option */}
           {error && (
-            <div className="mb-6 p-4 rounded border border-red-900/30 bg-red-950/20 text-red-400 flex items-start gap-3 text-sm animate-fade-in">
-              <AlertTriangle className="shrink-0 mt-0.5" size={16} />
+            <div className="mb-6 p-4 rounded-lg border border-red-900/40 bg-red-950/30 text-red-300 flex items-start gap-3 text-sm animate-fade-in shadow-inner">
+              <AlertTriangle className="shrink-0 mt-0.5 text-red-400" size={18} />
               <div className="flex-1">
-                <p className="font-semibold">Ocorreu um erro:</p>
-                <p className="text-xs text-red-500 mt-1">{error}</p>
-                <button 
-                  onClick={handleReset} 
-                  className="mt-3 text-xs bg-red-900/40 hover:bg-red-800/40 text-white px-3 py-1.5 rounded transition-all focus:outline-none"
-                >
-                  Reiniciar Diagnóstico
-                </button>
+                <p className="font-semibold text-red-200">Falha no Processamento do Diagnóstico:</p>
+                <p className="text-xs text-red-300 mt-1 leading-relaxed">{error}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2.5">
+                  <button 
+                    onClick={handleSubmit} 
+                    className="flex items-center gap-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded transition-all focus:outline-none shadow-sm cursor-pointer"
+                  >
+                    <RefreshCw size={12} />
+                    <span>Tentar Novamente</span>
+                  </button>
+                  <button 
+                    onClick={handleReset} 
+                    className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-gray-300 hover:text-white px-3 py-1.5 rounded transition-all focus:outline-none border border-slate-700 cursor-pointer"
+                  >
+                    <RotateCcw size={12} />
+                    <span>Reiniciar Diagnóstico</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
