@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "lead": {
+      "title": "Lead",
+      "description": "Represents a prospective client or qualified lead in the CRM",
+      "type": "object",
+      "properties": {
+        "lead_id": { "type": "string", "description": "Unique identifier of the lead" },
+        "nome": { "type": "string", "description": "Contact name of the prospect" },
+        "empresa": { "type": "string", "description": "Company name" },
+        "setor": { "type": "string", "description": "Business sector/industry" },
+        "tamanho_empresa": { "type": "string", "description": "Size segment of the company" },
+        "telefone": { "type": "string", "description": "WhatsApp or mobile number" },
+        "email": { "type": "string", "description": "E-mail address" },
+        "problema": { "type": "string", "description": "Description of the business challenge or pain point" },
+        "urgencia": { "type": "string", "description": "Urgency timeline for resolving the challenge" },
+        "servico_recomendado": { "type": "string", "description": "Vandunem practice area(s) recommended" },
+        "origem": { "type": "string", "description": "Origin of the lead generation" },
+        "status": {
+          "type": "string",
+          "enum": ["NEW", "QUALIFIED", "CONTACTED", "MEETING", "PROPOSAL", "NEGOTIATION", "WON", "LOST"],
+          "description": "CRM workflow stage of the lead"
+        },
+        "created_at": { "type": "string", "format": "date-time", "description": "ISO timestamp of creation" }
+      },
+      "required": ["lead_id", "nome", "telefone", "status", "created_at"]
+    },
+    "analytics": {
+      "title": "Analytics Stats",
+      "description": "Aggregated analytics statistics and counters",
+      "type": "object",
+      "properties": {
+        "visitantes": { "type": "number", "description": "Total simulated visitor sessions" },
+        "origens": {
+          "type": "object",
+          "description": "Counter map of visitor entry channels"
+        },
+        "eventos": {
+          "type": "object",
+          "description": "Counter map of user interaction events"
+        }
+      },
+      "required": ["visitantes", "origens", "eventos"]
+    }
+  },
+  "firestore": {
+    "/leads/{leadId}": {
+      "schema": "lead",
+      "description": "Collection of business leads for the Vandunem CRM system"
+    },
+    "/analytics/{docId}": {
+      "schema": "analytics",
+      "description": "Collection for storing aggregated dashboard metrics"
+    }
+  }
+}

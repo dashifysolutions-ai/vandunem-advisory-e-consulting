@@ -1,6 +1,7 @@
 import React from "react";
 import { ArrowRight, AlertTriangle, Play, HelpCircle, MessageSquare, Database, TrendingUp, Settings } from "lucide-react";
 import { trackEvent } from "../utils/analytics.ts";
+import bgImage from "../assets/images/corporate_advisory_desk_1787050613000.jpg";
 
 interface HeroProps {
   onNavigate: (section: string) => void;
@@ -44,7 +45,7 @@ export default function Hero({ onNavigate, onSelectProblem }: HeroProps) {
       {/* Background Image with Dark Premium Overlay */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden select-none">
         <img 
-          src="/pexels-shkrabaanthony-5816283.jpg" 
+          src={bgImage} 
           alt="Vandunem Corporate Strategy Background" 
           className="w-full h-full object-cover object-center opacity-40 filter brightness-[0.5] contrast-[1.1] saturate-[0.9]"
           referrerPolicy="no-referrer"

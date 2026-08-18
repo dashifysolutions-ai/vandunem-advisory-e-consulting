@@ -4,6 +4,8 @@ import fs from "fs";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import { initializeApp, getApps, getApp } from "firebase-admin/app";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
 dotenv.config();
 
@@ -12,86 +14,131 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Path to storage files
-const LEADS_FILE = path.join(process.cwd(), "leads.json");
-const ANALYTICS_FILE = path.join(process.cwd(), "analytics.json");
+// Firebase Admin initialization & helper
+let db: ReturnType<typeof getFirestore>;
 
-// Helper to ensure database files exist with mock data
-function initDatabase() {
-  if (!fs.existsSync(LEADS_FILE)) {
-    const initialLeads = [
-      {
-        lead_id: "lead_1",
-        nome: "Manuel Costa",
-        empresa: "AngoDistribuidora Lda",
-        setor: "Distribuição & Logística",
-        tamanho_empresa: "PME",
-        telefone: "+244 923 456 789",
-        email: "m.costa@angodist.ao",
-        problema: "Custos elevados de importação e falta de dados estruturados para tomada de decisão.",
-        urgencia: "Imediata (dentro de 15 dias)",
-        servico_recomendado: "02 — FINANCE & PERFORMANCE, 05 — PROCUREMENT, RISK & GOVERNANCE",
-        origem: "Vandunem AI",
-        status: "NEGOTIATION",
-        created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        lead_id: "lead_2",
-        nome: "Cláudia Santos",
-        empresa: "Kandandu Restauração",
-        setor: "Alimentação & Bebidas",
-        tamanho_empresa: "Pequena",
-        telefone: "+244 912 345 678",
-        email: "claudia@kandandu.co.ao",
-        problema: "Vender bem, mas sem saber se há lucro real ao fim do mês por falta de controlos financeiros.",
-        urgencia: "No próximo mês",
-        servico_recomendado: "01 — BUSINESS & STRATEGY, 02 — FINANCE & PERFORMANCE",
-        origem: "Formulário de Contacto",
-        status: "MEETING",
-        created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        lead_id: "lead_3",
-        nome: "Dr. Álvaro Baptista",
-        empresa: "Clínica MediCare Luanda",
-        setor: "Saúde & Bem-Estar",
-        tamanho_empresa: "PME",
-        telefone: "+244 954 888 123",
-        email: "alvaro.baptista@medicare.ao",
-        problema: "Processos manuais na recepção e facturação que atrasam o atendimento.",
-        urgencia: "A planejar (próximos 3 meses)",
-        servico_recomendado: "03 — AI & DATA, 04 — PRODUCT & OPERATIONS",
-        origem: "Vandunem AI",
-        status: "QUALIFIED",
-        created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+function getFirestoreDb(): ReturnType<typeof getFirestore> {
+  if (!db) {
+    let projectId = process.env.GOOGLE_CLOUD_PROJECT || "gen-lang-client-0130274538";
+    let databaseId = "ai-studio-vandunemadvisory-5e695190-429d-4572-ad62-ebaaaf6bf75d";
+    
+    // Read from firebase-applet-config.json if available
+    try {
+      const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        if (config.projectId) projectId = config.projectId;
+        if (config.firestoreDatabaseId) databaseId = config.firestoreDatabaseId;
       }
-    ];
-    fs.writeFileSync(LEADS_FILE, JSON.stringify(initialLeads, null, 2));
-  }
+    } catch (e) {
+      console.warn("⚠️ Não foi possível ler o firebase-applet-config.json, usando valores por defeito:", e);
+    }
 
-  if (!fs.existsSync(ANALYTICS_FILE)) {
-    const initialAnalytics = {
-      visitantes: 1840,
-      origens: {
-        "Directo / Pesquisa": 820,
-        "Redes Sociais": 540,
-        "WhatsApp": 310,
-        "Recomendações": 170
-      },
-      eventos: {
-        CTA_CLICK: 412,
-        AI_STARTED: 189,
-        AI_COMPLETED: 94,
-        WHATSAPP_CLICK: 154,
-        CONTACT_SUBMITTED: 37,
-        MEETING_REQUESTED: 12
-      }
-    };
-    fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(initialAnalytics, null, 2));
+    let firebaseApp;
+    if (getApps().length === 0) {
+      firebaseApp = initializeApp({
+        projectId: projectId,
+      });
+    } else {
+      firebaseApp = getApp();
+    }
+    
+    db = getFirestore(firebaseApp, databaseId);
   }
+  return db;
 }
 
-initDatabase();
+// Seeding function for Firestore collections
+async function initFirestoreDatabase() {
+  const firestore = getFirestoreDb();
+  
+  try {
+    // 1. Seed Leads if collection is empty
+    const leadsRef = firestore.collection("leads");
+    const snapshot = await leadsRef.limit(1).get();
+    if (snapshot.empty) {
+      console.log("🌱 A semear o Firestore com leads iniciais...");
+      const initialLeads = [
+        {
+          lead_id: "lead_1",
+          nome: "Manuel Costa",
+          empresa: "AngoDistribuidora Lda",
+          setor: "Distribuição & Logística",
+          tamanho_empresa: "PME",
+          telefone: "+244 923 456 789",
+          email: "m.costa@angodist.ao",
+          problema: "Custos elevados de importação e falta de dados estruturados para tomada de decisão.",
+          urgencia: "Imediata (dentro de 15 dias)",
+          servico_recomendado: "02 — FINANCE & PERFORMANCE, 05 — PROCUREMENT, RISK & GOVERNANCE",
+          origem: "Vandunem AI",
+          status: "NEGOTIATION",
+          created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+        {
+          lead_id: "lead_2",
+          nome: "Cláudia Santos",
+          empresa: "Kandandu Restauração",
+          setor: "Alimentação & Bebidas",
+          tamanho_empresa: "Pequena",
+          telefone: "+244 912 345 678",
+          email: "claudia@kandandu.co.ao",
+          problema: "Vender bem, mas sem saber se há lucro real ao fim do mês por falta de controlos financeiros.",
+          urgencia: "No próximo mês",
+          servico_recomendado: "01 — BUSINESS & STRATEGY, 02 — FINANCE & PERFORMANCE",
+          origem: "Formulário de Contacto",
+          status: "MEETING",
+          created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+        {
+          lead_id: "lead_3",
+          nome: "Dr. Álvaro Baptista",
+          empresa: "Clínica MediCare Luanda",
+          setor: "Saúde & Bem-Estar",
+          tamanho_empresa: "PME",
+          telefone: "+244 954 888 123",
+          email: "alvaro.baptista@medicare.ao",
+          problema: "Processos manuais na recepção e facturação que atrasam o atendimento.",
+          urgencia: "A planejar (próximos 3 meses)",
+          servico_recomendado: "03 — AI & DATA, 04 — PRODUCT & OPERATIONS",
+          origem: "Vandunem AI",
+          status: "QUALIFIED",
+          created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        }
+      ];
+
+      for (const lead of initialLeads) {
+        await leadsRef.doc(lead.lead_id).set(lead);
+      }
+    }
+
+    // 2. Seed Analytics if not present
+    const analyticsRef = firestore.collection("analytics").doc("dashboard");
+    const doc = await analyticsRef.get();
+    if (!doc.exists) {
+      console.log("🌱 A semear o Firestore com analíticas iniciais...");
+      const initialAnalytics = {
+        visitantes: 1840,
+        origens: {
+          "Directo / Pesquisa": 820,
+          "Redes Sociais": 540,
+          "WhatsApp": 310,
+          "Recomendações": 170
+        },
+        eventos: {
+          CTA_CLICK: 412,
+          AI_STARTED: 189,
+          AI_COMPLETED: 94,
+          WHATSAPP_CLICK: 154,
+          CONTACT_SUBMITTED: 37,
+          MEETING_REQUESTED: 12
+        }
+      };
+      await analyticsRef.set(initialAnalytics);
+    }
+  } catch (error) {
+    console.error("❌ Erro ao semear o banco Firestore:", error);
+  }
+}
 
 // Lazy initialization of GoogleGenAI
 let aiInstance: GoogleGenAI | null = null;
@@ -99,10 +146,10 @@ function getGeminiClient(): GoogleGenAI {
   if (!aiInstance) {
     const key = process.env.GEMINI_API_KEY;
     if (!key || key === "MY_GEMINI_API_KEY") {
-      console.warn("⚠️ GEMINI_API_KEY is not configured or uses default template value.");
+      console.warn("⚠️ GEMINI_API_KEY não está configurada ou usa o valor padrão.");
     }
     aiInstance = new GoogleGenAI({
-      apiKey: key,
+      apiKey: key || "",
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build',
@@ -115,22 +162,27 @@ function getGeminiClient(): GoogleGenAI {
 
 // REST APIs
 // 1. CRM Leads management
-app.get("/api/leads", (req, res) => {
+app.get("/api/leads", async (req, res) => {
   const adminPassword = req.headers["x-admin-password"];
   if (adminPassword !== "vandunem2026") {
     return res.status(401).json({ error: "Não autorizado." });
   }
 
   try {
-    const leadsData = fs.readFileSync(LEADS_FILE, "utf-8");
-    const leads = JSON.parse(leadsData);
+    const firestore = getFirestoreDb();
+    const snapshot = await firestore.collection("leads").orderBy("created_at", "desc").get();
+    const leads: any[] = [];
+    snapshot.forEach(doc => {
+      leads.push(doc.data());
+    });
     res.json({ success: true, leads });
   } catch (error) {
-    res.status(500).json({ error: "Erro ao ler leads." });
+    console.error("Erro ao obter leads do Firestore:", error);
+    res.status(500).json({ error: "Erro ao ler leads da base de dados." });
   }
 });
 
-app.post("/api/leads", (req, res) => {
+app.post("/api/leads", async (req, res) => {
   try {
     const { nome, empresa, setor, tamanho_empresa, telefone, email, problema, urgencia, servico_recomendado, origem } = req.body;
     
@@ -138,11 +190,9 @@ app.post("/api/leads", (req, res) => {
       return res.status(400).json({ error: "Nome e Telefone/WhatsApp são campos obrigatórios." });
     }
 
-    const leadsData = fs.readFileSync(LEADS_FILE, "utf-8");
-    const leads = JSON.parse(leadsData);
-
+    const lead_id = `lead_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newLead = {
-      lead_id: `lead_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      lead_id,
       nome,
       empresa: empresa || "Não Informada",
       setor: setor || "Não Especificado",
@@ -157,26 +207,27 @@ app.post("/api/leads", (req, res) => {
       created_at: new Date().toISOString()
     };
 
-    leads.unshift(newLead);
-    fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
+    const firestore = getFirestoreDb();
+    await firestore.collection("leads").doc(lead_id).set(newLead);
 
-    // Also increment ANALYTICS for CONTACT_SUBMITTED
+    // Increment CONTACT_SUBMITTED count in analytics
     try {
-      const analyticsData = fs.readFileSync(ANALYTICS_FILE, "utf-8");
-      const analytics = JSON.parse(analyticsData);
-      analytics.eventos.CONTACT_SUBMITTED = (analytics.eventos.CONTACT_SUBMITTED || 0) + 1;
-      fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(analytics, null, 2));
+      const analyticsRef = firestore.collection("analytics").doc("dashboard");
+      await analyticsRef.update({
+        "eventos.CONTACT_SUBMITTED": FieldValue.increment(1)
+      });
     } catch (e) {
-      console.error("Erro ao incrementar analytics durante criação de lead", e);
+      console.error("Erro ao incrementar analíticas:", e);
     }
 
     res.status(201).json({ success: true, lead: newLead });
   } catch (error) {
+    console.error("Erro ao salvar lead no Firestore:", error);
     res.status(500).json({ error: "Erro ao salvar o lead." });
   }
 });
 
-app.patch("/api/leads/:id", (req, res) => {
+app.patch("/api/leads/:id", async (req, res) => {
   const adminPassword = req.headers["x-admin-password"];
   if (adminPassword !== "vandunem2026") {
     return res.status(401).json({ error: "Não autorizado." });
@@ -191,30 +242,36 @@ app.patch("/api/leads/:id", (req, res) => {
       return res.status(400).json({ error: "Status inválido." });
     }
 
-    const leadsData = fs.readFileSync(LEADS_FILE, "utf-8");
-    const leads = JSON.parse(leadsData);
+    const firestore = getFirestoreDb();
+    const leadRef = firestore.collection("leads").doc(id);
+    const doc = await leadRef.get();
 
-    const leadIndex = leads.findIndex((l: any) => l.lead_id === id);
-    if (leadIndex === -1) {
+    if (!doc.exists) {
       return res.status(404).json({ error: "Lead não encontrado." });
     }
 
-    leads[leadIndex].status = status;
-    fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
-
-    res.json({ success: true, lead: leads[leadIndex] });
+    await leadRef.update({ status });
+    res.json({ success: true, lead: { ...doc.data(), status } });
   } catch (error) {
-    res.status(500).json({ error: "Erro ao atualizar lead." });
+    console.error("Erro ao atualizar lead:", error);
+    res.status(500).json({ error: "Erro ao atualizar o lead." });
   }
 });
 
 // 2. AI Triaging / Qualification
 app.post("/api/ai/qualify", async (req, res) => {
   try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key || key === "MY_GEMINI_API_KEY") {
+      return res.status(400).json({
+        error: "A chave de API da IA (GEMINI_API_KEY) não está configurada. Por favor, configure esta chave no painel de Definições/Segredos do AI Studio para ativar o diagnóstico inteligente de IA da Vandunem."
+      });
+    }
+
     const { q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11 } = req.body;
 
     if (!q1 || !q8 || !q10) {
-      return res.status(400).json({ error: "Respostas incompletas." });
+      return res.status(400).json({ error: "Respostas do questionário incompletas." });
     }
 
     // Build the diagnostic data context
@@ -261,7 +318,7 @@ app.post("/api/ai/qualify", async (req, res) => {
     const ai = getGeminiClient();
     
     const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-2.5-flash",
       contents: [
         { text: systemPrompt },
         { text: contextText }
@@ -298,11 +355,9 @@ app.post("/api/ai/qualify", async (req, res) => {
     const parsedResult = JSON.parse(response.text || "{}");
 
     // Persist this qualified lead into Leads
-    const leadsData = fs.readFileSync(LEADS_FILE, "utf-8");
-    const leads = JSON.parse(leadsData);
-
+    const lead_id = `lead_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newLead = {
-      lead_id: `lead_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      lead_id,
       nome: q8,
       empresa: q9 || "Não Informada",
       setor: q2 || "Não Informado",
@@ -317,17 +372,17 @@ app.post("/api/ai/qualify", async (req, res) => {
       created_at: new Date().toISOString()
     };
 
-    leads.unshift(newLead);
-    fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
+    const firestore = getFirestoreDb();
+    await firestore.collection("leads").doc(lead_id).set(newLead);
 
-    // Increment ANALYTICS for AI_COMPLETED and LEADS
+    // Increment ANALYTICS for AI_COMPLETED
     try {
-      const analyticsData = fs.readFileSync(ANALYTICS_FILE, "utf-8");
-      const analytics = JSON.parse(analyticsData);
-      analytics.eventos.AI_COMPLETED = (analytics.eventos.AI_COMPLETED || 0) + 1;
-      fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(analytics, null, 2));
+      const analyticsRef = firestore.collection("analytics").doc("dashboard");
+      await analyticsRef.update({
+        "eventos.AI_COMPLETED": FieldValue.increment(1)
+      });
     } catch (e) {
-      console.error(e);
+      console.error("Erro ao atualizar estatísticas da IA:", e);
     }
 
     res.json({ success: true, analysis: parsedResult, leadId: newLead.lead_id });
@@ -339,15 +394,21 @@ app.post("/api/ai/qualify", async (req, res) => {
 });
 
 // 3. Simple Analytics log and retrieve
-app.get("/api/analytics", (req, res) => {
+app.get("/api/analytics", async (req, res) => {
   try {
-    const analyticsData = fs.readFileSync(ANALYTICS_FILE, "utf-8");
-    const analytics = JSON.parse(analyticsData);
+    const firestore = getFirestoreDb();
     
-    // Add current lead counts by status
-    const leadsData = fs.readFileSync(LEADS_FILE, "utf-8");
-    const leads = JSON.parse(leadsData);
-    
+    // Get analytics dashboard document
+    const analyticsDoc = await firestore.collection("analytics").doc("dashboard").get();
+    const analytics = analyticsDoc.exists ? analyticsDoc.data() : { visitantes: 0, origens: {}, eventos: {} };
+
+    // Get all leads to calculate statuses dynamically
+    const snapshot = await firestore.collection("leads").get();
+    const leads: any[] = [];
+    snapshot.forEach(doc => {
+      leads.push(doc.data());
+    });
+
     const statusCounts = leads.reduce((acc: any, lead: any) => {
       acc[lead.status] = (acc[lead.status] || 0) + 1;
       return acc;
@@ -362,11 +423,12 @@ app.get("/api/analytics", (req, res) => {
       }
     });
   } catch (error) {
+    console.error("Erro ao obter analíticas:", error);
     res.status(500).json({ error: "Erro ao ler analytics." });
   }
 });
 
-app.post("/api/analytics/event", (req, res) => {
+app.post("/api/analytics/event", async (req, res) => {
   try {
     const { event } = req.body;
     const validEvents = ["CTA_CLICK", "AI_STARTED", "AI_COMPLETED", "WHATSAPP_CLICK", "CONTACT_SUBMITTED", "MEETING_REQUESTED"];
@@ -375,23 +437,50 @@ app.post("/api/analytics/event", (req, res) => {
       return res.status(400).json({ error: "Evento inválido" });
     }
 
-    const analyticsData = fs.readFileSync(ANALYTICS_FILE, "utf-8");
-    const analytics = JSON.parse(analyticsData);
-    
-    analytics.eventos[event] = (analytics.eventos[event] || 0) + 1;
+    const firestore = getFirestoreDb();
+    const analyticsRef = firestore.collection("analytics").doc("dashboard");
+
+    const updateData: any = {
+      [`eventos.${event}`]: FieldValue.increment(1)
+    };
+
     if (event === "CTA_CLICK") {
-      analytics.visitantes = (analytics.visitantes || 0) + 1; // Increment visitor simulated count too
+      updateData["visitantes"] = FieldValue.increment(1);
     }
 
-    fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(analytics, null, 2));
+    await analyticsRef.update(updateData);
     res.json({ success: true });
   } catch (error) {
+    console.error("Erro ao guardar evento de analítica:", error);
     res.status(500).json({ error: "Erro ao salvar evento." });
+  }
+});
+
+app.post("/api/analytics/visit", async (req, res) => {
+  try {
+    const firestore = getFirestoreDb();
+    const analyticsRef = firestore.collection("analytics").doc("dashboard");
+
+    const origins = ["Directo / Pesquisa", "Redes Sociais", "WhatsApp", "Recomendações"];
+    const randomOrigin = origins[Math.floor(Math.random() * origins.length)];
+
+    await analyticsRef.update({
+      "visitantes": FieldValue.increment(1),
+      [`origens.${randomOrigin}`]: FieldValue.increment(1)
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Erro ao registar visita:", error);
+    res.status(500).json({ error: "Erro ao registar visita." });
   }
 });
 
 // Serve frontend build and index fallback
 async function startServer() {
+  // Inicializa o Firestore com dados de semente (seed) se vazio
+  await initFirestoreDatabase();
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
